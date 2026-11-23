@@ -1,0 +1,16 @@
+services:
+  ticket-recon:
+    build: .
+    image: ticket-recon:latest
+    container_name: ticket-recon
+    ports:
+      - "8000:8000"
+    environment:
+      RECON_DB_PATH: /data/recon.sqlite3
+      RECON_SECRET_KEY: change-me-in-production
+    volumes:
+      - recon-data:/data
+    restart: unless-stopped
+
+volumes:
+  recon-data:

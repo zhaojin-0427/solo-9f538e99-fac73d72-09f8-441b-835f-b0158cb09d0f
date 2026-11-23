@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="card">
+  <h2>上传校对批次（三个 CSV 必传；每批最多 24 笔，金额为 0～1 000 000 整数分）</h2>
+  <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
+    <div class="upload-grid">
+      <div>
+        <label for="entries_file">票款清单（票号/窗口/售票日/候选金额1～3）</label>
+        <input id="entries_file" name="entries_file" type="file" accept=".csv,text/csv" required>
+      </div>
+      <div>
+        <label for="window_file">纸面合计 · 按窗口（窗口/合计）</label>
+        <input id="window_file" name="window_file" type="file" accept=".csv,text/csv" required>
+      </div>
+      <div>
+        <label for="date_file">纸面合计 · 按售票日（售票日/合计）</label>
+        <input id="date_file" name="date_file" type="file" accept=".csv,text/csv" required>
+      </div>
+    </div>
+    <button type="submit">上传并求解可行金额</button>
+  </form>
+  <p class="small muted" style="margin-bottom:0">
+    系统只列出能与其他票款一起同时满足两套合计的候选金额；整批无解的文件会被拒绝，不会覆盖当前批次。
+  </p>
+</div>
+
+{% if view %}
+<div class="card">
+  <h2>
+    批次 #{{ view.batch.id }}
+    <span class="muted small">（{{ view.batch.entry_count }} 笔，
+      已确认 {{ view.confirmed_count }} 笔，入库时间 {{ view.batch.created_at }}）</span>
+    {% if view.all_singletons %}
+      <span class="tag tag-ok">每笔仅剩一个可行金额，可下载入仓</span>
+    {% else %}
+      <span class="tag tag-warn">仍有多可行金额的票款</span>
+    {% endif %}
+  </h2>
+
+  <div class="totals">
+    <div>
+      <table>
+        <thead><tr><th>窗口</th><th class="num">纸面合计（分）</th></tr></thead>
+        <tbody>
+        {% for g in view.window_totals %}
+          <tr><td>{{ g.group_key }}</td><td class="num">{{ g.total }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <table>
+        <thead><tr><th>售票日</th><th class="num">纸面合计（分）</th></tr></thead>
+        <tbody>
+        {% for g in view.date_totals %}
+          <tr><td>{{ g.group_key }}</td><td class="num">{{ g.total }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>逐笔校对
+    <span class="muted small">划线金额为当前确认状态下不可行的候选；确认提交时会与全部已确认金额一起重新校验，冲突则回滚并保留原确认。</span>
+  </h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th><th>票号</th><th>窗口</th><th>售票日</th>
+        <th>候选金额（分）与可行性</th><th class="num">可行数</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for e in view.entries %}
+      <tr>
+        <td>{{ e.position + 1 }}</td>
+        <td>{{ e.ticket_no }}</td>
+        <td>{{ e.window }}</td>
+        <td>{{ e.sale_date }}</td>
+        <td>
+          <form class="inline" method="post"
+                action="{{ url_for('confirm', entry_id=e.id) }}">
+            <input type="hidden" name="ticket_no" value="{{ e.ticket_no }}">
+            {% for v in e.candidates %}
+              {% set is_feasible = v in e.feasible %}
+              {% if is_feasible %}
+              <label class="cand">
+                <input type="radio" name="amount" value="{{ v }}"
+                       {% if e.confirmed == v %}checked{% endif %}>
+                {{ v }}
+              </label>
+              {% else %}
+              <label class="cand disabled" title="当前确认状态下该金额无法满足两套合计">
+                <input type="radio" name="amount" value="{{ v }}" disabled>
+                {{ v }}
+              </label>
+              {% endif %}
+            {% endfor %}
+            {% if e.confirmed is not none %}
+              <span class="tag tag-fixed">已确认 {{ e.confirmed }}</span>
+            {% endif %}
+            <button type="submit"
+                    {% if not e.feasible %}disabled{% endif %}>提交确认</button>
+          </form>
+        </td>
+        <td class="num">
+          {{ e.feasible|length }}
+          {% if e.feasible|length == 1 %}<span class="tag tag-ok">唯一</span>{% endif %}
+        </td>
+        <td>
+          {% if e.confirmed is not none %}
+          <form class="inline" method="post"
+                action="{{ url_for('revoke', entry_id=e.id) }}">
+            <button type="submit" class="danger">撤销确认</button>
+          </form>
+          {% else %}<span class="muted small">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <p style="margin-top:16px">
+    <a href="{{ url_for('export') }}">
+      <button type="button" {% if not view.all_singletons %}disabled
+              title="必须每笔都只剩一个可行金额才能入仓"{% endif %}>
+        下载入仓 CSV（票号/窗口/售票日/金额）
+      </button>
+    </a>
+    {% if not view.all_singletons %}
+      <span class="small muted">按钮在每笔均唯一可行后启用。</span>
+    {% endif %}
+  </p>
+</div>
+{% else %}
+<div class="card">
+  <h2>暂无批次</h2>
+  <p class="muted">上传票款清单和两份纸面合计表后开始校对。</p>
+</div>
+{% endif %}
+{% endblock %}
